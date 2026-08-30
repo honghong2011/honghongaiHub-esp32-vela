@@ -1,0 +1,62 @@
+{
+  "package": "com.honghong.aihub",
+  "name": "宏宏AIHub",
+  "versionName": "1.1.0",
+  "versionCode": 2,
+  "minPlatformVersion": 1100,
+  "icon": "/common/logo.png",
+  "simulationVersion": "default",
+  "deviceTypeList": [
+    "watch"
+  ],
+  "features": [
+    {
+      "name": "system.interconnect"
+    },
+    {
+      "name": "system.router"
+    },
+    {
+      "name": "system.prompt"
+    },
+    {
+      "name": "system.file"
+    },
+    {
+      "name": "system.storage"
+    },
+    {
+      "name": "system.vibrator"
+    },
+    {
+      "name": "system.device"
+    }
+  ],
+  "config": {
+    "logLevel": "log",
+    "designWidth": 336
+  },
+  "router": {
+    "entry": "pages/index",
+    "pages": {
+      "pages/index": {
+        "component": "index"
+      },
+      "pages/chat": {
+        "component": "chat"
+      },
+      "pages/providers": {
+        "component": "providers"
+      },
+      "pages/setting": {
+        "component": "setting"
+      },
+      "pages/keyboard": {
+        "component": "keyboard"
+      },
+      "pages/debug": {
+        "component": "debug"
+      }
+    }
+  }
+}

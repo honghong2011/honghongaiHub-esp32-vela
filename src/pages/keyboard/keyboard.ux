@@ -1,0 +1,196 @@
+<import name="input-method" src="../../components/InputMethod/InputMethod.ux"></import>
+<template>
+  <div class="page" @swipe="onSwipe">
+    <!-- 顶栏：返回 + 标题 -->
+    <div class="topbar">
+      <div class="back-btn" @click="goBack">
+        <text class="back-icon">‹</text>
+      </div>
+      <text class="kb-title">{{title}}</text>
+    </div>
+
+    <!-- 已输入内容预览 -->
+    <div class="preview-box">
+      <text class="preview-text">{{displayText}}</text>
+    </div>
+    <div class="meta-row">
+      <text class="kb-count">{{text.length}}/{{maxLen}}</text>
+      <div class="btn-confirm" @click="confirm">
+        <text class="btn-confirm-text">确定</text>
+      </div>
+    </div>
+
+    <!-- 键盘：designWidth=336 与控件设计基准一致，原生 1:1 渲染。
+         组件根自带 position:absolute; bottom:0，自动贴屏幕底部，无需任何包装 -->
+    <input-method
+      hide="{{kbHide}}"
+      keyboardtype="QWERTY"
+      maxlength="5"
+      vibratemode="short"
+      screentype="rect"
+      @visibility-change="onKbVisibility"
+      @delete="onKbDelete"
+      @complete="onKbComplete"
+    ></input-method>
+  </div>
+</template>
+
+<style>
+.page {
+  width: 336px;
+  height: 480px;
+  flex-direction: column;
+  align-items: flex-start;
+  background-color: #000000;
+}
+
+.topbar {
+  width: 336px;
+  height: 40px;
+  flex-direction: row;
+  align-items: center;
+  padding-left: 8px;
+  background-color: #111111;
+}
+
+.back-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 16px;
+  background-color: #2C2C2E;
+  justify-content: center;
+  align-items: center;
+  margin-right: 8px;
+}
+
+.back-icon {
+  font-size: 24px;
+  color: #ffffff;
+}
+
+.kb-title {
+  font-size: 20px;
+  color: #33B4FF;
+  font-weight: bold;
+  lines: 1;
+  text-overflow: ellipsis;
+}
+
+.preview-box {
+  width: 320px;
+  height: 72px;
+  border-radius: 16px;
+  background-color: #1C1C1E;
+  padding: 6px 12px;
+  margin: 6px 8px 0 8px;
+}
+
+.preview-text {
+  font-size: 20px;
+  color: #ffffff;
+  line-height: 26px;
+}
+
+.meta-row {
+  width: 320px;
+  height: 44px;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  margin: 4px 8px 0 8px;
+}
+
+.kb-count {
+  font-size: 16px;
+  color: #666666;
+}
+
+.btn-confirm {
+  width: 112px;
+  height: 40px;
+  border-radius: 20px;
+  background-color: #33B4FF;
+  justify-content: center;
+  align-items: center;
+}
+
+.btn-confirm-text {
+  font-size: 22px;
+  font-weight: bold;
+  color: #000000;
+}
+</style>
+
+<script>
+import router from '@system.router'
+
+// 结果通过 globalThis 传回（跨页面共享，跑分项目同款模式）：
+// 调用方设置 globalThis.__kbTarget 声明归属，本页确认时写入 __kbResult
+export default {
+  private: {
+    title: '输入',
+    text: '',
+    value: '',       // 初始文本（router params 注入）
+    maxlen: '500',   // 上限（router params 注入，字符串；参数名全小写）
+    maxLen: 500,     // 归一化后的上限（onInit 换算，模板显示用）
+    mask: false,     // 密码模式（router params 注入）
+    target: 'chat',  // 归属标记（router params 注入）
+    kbHide: true     // 初始隐藏键盘：组件首次显示会同步建拼音字典索引，
+                     // 若首帧就执行会阻塞页面渲染导致整页黑屏；onReady 后再弹出
+  },
+
+  onReady() {
+    // 页面首帧渲染完成后再弹出键盘，避免字典初始化阻塞首帧（黑屏不闪退）
+    setTimeout(() => { this.kbHide = false }, 60)
+  },
+
+  onInit() {
+    // router params 按同名属性注入，这里做类型归一化
+    this.maxLen = parseInt(this.maxlen) || 500
+    this.mask = (this.mask === true || this.mask === '1')
+    if (!this.title) this.title = '输入'
+    if (!this.target) this.target = 'chat'
+    this.text = this.value || ''
+  },
+
+  computed: {
+    displayText() {
+      if (!this.text) return '请输入…'
+      if (this.mask) {
+        return '••••••••'.substring(0, Math.min(this.text.length, 8))
+      }
+      return this.text
+    }
+  },
+
+  // ---------- 键盘事件 ----------
+  onKbVisibility() { /* 常驻显示，无需处理 */ },
+
+  onKbDelete() {
+    this.text = this.text.substring(0, this.text.length - 1)
+  },
+
+  onKbComplete(evt) {
+    // 中文选词 / 英文字符逐个追加；超上限忽略
+    if (this.text.length >= this.maxLen) return
+    this.text += evt.detail.content
+  },
+
+  // ---------- 确认 / 返回 ----------
+  confirm() {
+    // 空文本也允许返回（调用方自行判断）
+    globalThis.__kbResult = { target: this.target, text: this.text }
+    router.back()
+  },
+
+  goBack() {
+    // 不带结果返回（取消输入）
+    router.back()
+  },
+
+  // 右滑返回（根元素 @swipe；键盘横向滚动区会消费手势，顶栏/预览区右滑有效）
+  onSwipe(e) {
+    if (e.direction === 'right') router.back()
+  }
+}
+</script>

@@ -1,0 +1,401 @@
+<template>
+  <div class="page" @swipe="onSwipe">
+    <!-- 顶部：返回 + 当前选择 -->
+    <div class="header">
+      <div class="back-btn" @click="goBack">
+        <text class="back-icon">‹</text>
+      </div>
+      <text class="header-title">模型选择</text>
+      <text class="header-current">{{currentLabel}}</text>
+    </div>
+
+    <!-- 供应商分组列表：照抄跑分 about/device 页真机验证过的 scroll 结构
+         （scroll 定高 + 显式 column，子行全部同构）。
+         供应商标题行 / 模型气泡行只用动态 class + 文本内容绑定切换，
+         不用 if / show / 嵌套 for，规避本机渲染坑 -->
+    <scroll class="body" scroll-y="true">
+      <div class="row {{$item.kind === 'prov' ? 'row-prov' : 'row-model'}}{{$item.active ? ' row-on' : ''}}"
+           for="{{rows}}"
+           @click="handleRowClick($item)"
+           @longpress="handleRowLongPress($item)">
+        <text class="dot">{{$item.kind === 'prov' ? '●' : ''}}</text>
+        <text class="row-name {{$item.kind === 'prov' ? 'name-prov' : ''}}{{$item.active ? ' name-on' : ''}}">{{$item.name}}</text>
+        <text class="check">{{$item.active ? '✓' : ''}}</text>
+      </div>
+      <div class="tail"></div>
+    </scroll>
+
+    <!-- 空状态 -->
+    <div class="empty" show="{{providers.length === 0}}">
+      <text class="empty-title">暂无供应商</text>
+      <text class="empty-hint">请在电脑浏览器打开</text>
+      <text class="empty-hint">http://{{espIp}}/providers</text>
+      <text class="empty-hint">添加后自动同步到这里</text>
+    </div>
+
+    <!-- 底部：返回 -->
+    <div class="footer">
+      <div class="btn-back" @click="goBack">
+        <text class="btn-back-text">返回对话</text>
+      </div>
+    </div>
+  </div>
+</template>
+
+<style>
+.page {
+  width: 336px;
+  height: 480px;
+  flex-direction: column;
+  background-color: #000000;
+}
+
+.header {
+  width: 336px;
+  height: 60px;
+  flex-direction: row;
+  align-items: center;
+  padding-left: 8px;
+  background-color: #111111;
+}
+
+.back-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 16px;
+  background-color: #2C2C2E;
+  justify-content: center;
+  align-items: center;
+  margin-right: 8px;
+}
+
+.back-icon {
+  font-size: 24px;
+  color: #ffffff;
+}
+
+.header-title {
+  font-size: 22px;
+  font-weight: bold;
+  color: #33B4FF;
+}
+
+.header-current {
+  font-size: 16px;
+  color: #888888;
+  margin-left: 8px;
+  flex: 1;
+  lines: 1;
+  text-overflow: ellipsis;
+}
+
+/* ---- 滚动列表：照抄跑分 about 页验证过的 scroll 三要素 ----
+   1. 竖向滚动必须定高（480 页面 - 60 头部 - 52 底部）
+   2. 必须显式 column：本机 scroll/div 子元素默认横排（前两版黑屏根因）
+   3. 子行限宽 + 容器 align-items 居中 */
+.body {
+  width: 336px;
+  height: 368px;
+  flex-direction: column;
+  align-items: center;
+  scroll-y: true;
+}
+
+/* 统一行骨架：标题行与气泡行 DOM 完全一致，只差 class */
+.row {
+  width: 312px;
+  height: 48px;
+  flex-direction: row;
+  align-items: center;
+  border-radius: 18px;
+  padding: 0 16px;
+  margin-bottom: 8px;
+}
+
+/* 供应商标题行：透明底 + 白字加粗 */
+.row-prov {
+  background-color: transparent;
+  height: 40px;
+  margin-top: 6px;
+}
+
+/* 模型气泡行：白框圆角卡片（边框长写，避免简写解析问题） */
+.row-model {
+  height: 52px;
+  background-color: #101010;
+  border-width: 2px;
+  border-style: solid;
+  border-color: #e0e0e0;
+}
+
+/* 选中的模型：蓝框蓝底 */
+.row-on {
+  border-color: #33B4FF;
+  background-color: #0d2033;
+}
+
+.dot {
+  width: 16px;
+  font-size: 12px;
+  color: #33B4FF;
+}
+
+.row-name {
+  flex: 1;
+  font-size: 18px;
+  color: #ffffff;
+  lines: 1;
+  text-overflow: ellipsis;
+}
+
+/* 供应商名：加大加粗 */
+.name-prov {
+  font-size: 22px;
+  font-weight: bold;
+}
+
+/* 选中的模型名：蓝字 */
+.name-on {
+  color: #33B4FF;
+  font-weight: bold;
+}
+
+.check {
+  width: 20px;
+  font-size: 18px;
+  font-weight: bold;
+  color: #33B4FF;
+  text-align: right;
+}
+
+/* 列表底部留白（最后一行不贴底栏） */
+.tail {
+  width: 336px;
+  height: 16px;
+}
+
+.empty {
+  position: absolute;
+  left: 0;
+  top: 80px;
+  width: 336px;
+  flex-direction: column;
+  align-items: center;
+}
+
+.empty-title {
+  font-size: 24px;
+  color: #666666;
+  margin-top: 60px;
+}
+
+.empty-hint {
+  font-size: 18px;
+  color: #555555;
+  margin-top: 8px;
+}
+
+.footer {
+  width: 336px;
+  height: 52px;
+  flex-direction: row;
+  justify-content: center;
+  align-items: center;
+  background-color: #111111;
+}
+
+.btn-back {
+  width: 200px;
+  height: 40px;
+  border-radius: 20px;
+  background-color: #2C2C2E;
+  justify-content: center;
+  align-items: center;
+}
+
+.btn-back-text {
+  font-size: 20px;
+  color: #ffffff;
+}
+</style>
+
+<script>
+import router from '@system.router'
+import prompt from '@system.prompt'
+import { on, off, send, setProvidersCache } from '../../common/bridge'
+import { loadProviders, saveProviders, loadCurrent, saveCurrent, loadEspIp } from '../../common/store'
+
+export default {
+  private: {
+    providers: [],
+    current: { provider: '', model: '' },
+    currentLabel: '',
+    rows: [],               // 扁平化渲染行：[{kind:'prov',name,pidx} | {kind:'model',name,pidx,mi,active}]
+    espIp: ''
+  },
+
+  onInit() {
+    this._onPush = (payload) => { this.onProvidersPush(payload) }
+    on('providers_push', this._onPush)
+    loadProviders((list) => {
+      this.providers = list
+      setProvidersCache(list)
+      this.rebuildRows()
+    })
+    loadCurrent((cur) => {
+      this.current = cur
+      this.updateLabel()
+      this.rebuildRows()
+    })
+    loadEspIp((ip) => { this.espIp = ip })
+    // 主动请求 ESP32 推送最新配置（若 ESP32 有 pending 推送会补发）
+    setTimeout(() => { send('providers_data', { providers: this.providers }) }, 500)
+  },
+
+  onDestroy() {
+    off('providers_push', this._onPush)
+  },
+
+  // ---------- 接收 ESP32 推送（bridge 已拼装为完整列表） ----------
+  onProvidersPush(payload) {
+    if (!payload.providers) return
+    this.providers = payload.providers
+    saveProviders(this.providers)
+    setProvidersCache(this.providers)
+    // 当前选择被删时重置
+    let found = false
+    for (let i = 0; i < this.providers.length; i++) {
+      if (this.providers[i].id === this.current.provider) { found = true; break }
+    }
+    if (!found) {
+      this.current = { provider: '', model: '' }
+      saveCurrent(this.current)
+    }
+    this.updateLabel()
+    this.rebuildRows()
+  },
+
+  // ---------- 操作 ----------
+  // 扁平化构建渲染行：供应商标题行 + 其模型气泡行（模板只消费默认 $item）
+  rebuildRows() {
+    const rows = []
+    for (let i = 0; i < this.providers.length; i++) {
+      const p = this.providers[i]
+      rows.push({ kind: 'prov', name: p.name || '', pidx: i })
+      const models = p.models || []
+      for (let m = 0; m < models.length; m++) {
+        rows.push({
+          kind: 'model',
+          name: models[m],
+          pidx: i,
+          mi: m,
+          active: p.id === this.current.provider && models[m] === this.current.model
+        })
+      }
+    }
+    this.rows = rows
+  },
+
+  // ---------- 统一行事件（标题行/气泡行同构，按 kind 分流） ----------
+  handleRowClick(item) {
+    if (!item || item.kind !== 'model') return
+    this.selectModel(item.pidx, item.mi)
+  },
+
+  handleRowLongPress(item) {
+    if (!item) return
+    if (item.kind === 'prov') this.confirmDeleteProvider(item.pidx)
+    else this.confirmDeleteModel(item.pidx, item.mi)
+  },
+
+  selectModel(pidx, mi) {
+    const p = this.providers[pidx]
+    if (!p || !p.models || mi >= p.models.length) return
+    this.current = { provider: p.id, model: p.models[mi] }
+    saveCurrent(this.current)
+    this.updateLabel()
+    this.rebuildRows()
+  },
+
+  confirmDeleteProvider(idx) {
+    const self = this
+    const p = this.providers[idx]
+    prompt.showDialog({
+      title: '删除供应商',
+      message: '删除 ' + (p ? p.name : '') + ' ？',
+      buttons: [
+        { text: '取消', color: '#888888' },
+        { text: '删除', color: '#FF6B6B' }
+      ],
+      success: (data) => {
+        if (data.index === 1) self.doDeleteProvider(idx)
+      }
+    })
+  },
+
+  doDeleteProvider(pidx) {
+    const p = this.providers[pidx]
+    this.providers.splice(pidx, 1)
+    saveProviders(this.providers)
+    if (p && p.id === this.current.provider) {
+      this.current = { provider: '', model: '' }
+      saveCurrent(this.current)
+      this.updateLabel()
+    }
+    this.rebuildRows()
+  },
+
+  confirmDeleteModel(pidx, mi) {
+    const self = this
+    const p = this.providers[pidx]
+    if (!p || !p.models || mi >= p.models.length) return
+    const m = p.models[mi]
+    prompt.showDialog({
+      title: '删除模型',
+      message: '删除 ' + (m || '') + ' ？',
+      buttons: [
+        { text: '取消', color: '#888888' },
+        { text: '删除', color: '#FF6B6B' }
+      ],
+      success: (data) => {
+        if (data.index === 1) self.doDeleteModel(pidx, mi)
+      }
+    })
+  },
+
+  doDeleteModel(pidx, mi) {
+    const p = this.providers[pidx]
+    if (!p || !p.models || mi >= p.models.length) return
+    const m = p.models[mi]
+    p.models.splice(mi, 1)
+    saveProviders(this.providers)
+    if (m && m === this.current.model && p.id === this.current.provider) {
+      this.current = { provider: p.id, model: p.models.length ? p.models[0] : '' }
+      saveCurrent(this.current)
+      this.updateLabel()
+    }
+    this.rebuildRows()
+  },
+
+  goBack() {
+    router.back()
+  },
+
+  // 右滑返回（根元素 @swipe）
+  onSwipe(e) {
+    if (e.direction === 'right') router.back()
+  },
+
+  updateLabel() {
+    let label = '未选择模型'
+    if (this.current.model) {
+      let pname = ''
+      for (let i = 0; i < this.providers.length; i++) {
+        if (this.providers[i].id === this.current.provider) { pname = this.providers[i].name; break }
+      }
+      label = (pname ? pname + ' / ' : '') + this.current.model
+    }
+    this.currentLabel = label
+  }
+}
+</script>

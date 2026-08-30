@@ -1,0 +1,370 @@
+<template>
+  <div class="page" @swipe="onSwipe">
+    <!-- 链路调试页：原 echo demo 保留，用于链路问题定位 -->
+    <div class="topbar">
+      <div class="back-btn" @click="goBack">
+        <text class="back-icon">‹</text>
+      </div>
+      <text class="app-name">链路调试</text>
+    </div>
+    <text class="status">{{statusText}}</text>
+
+    <!-- 收发统计 -->
+    <div class="stat-row">
+      <text class="stat-label">收到</text>
+      <text class="stat-val">{{rxCount}}</text>
+      <text class="stat-label">发成功</text>
+      <text class="stat-val">{{txOk}}</text>
+      <text class="stat-label">发失败</text>
+      <text class="stat-val stat-bad">{{txFail}}</text>
+    </div>
+    <text class="err-line">{{lastErr}}</text>
+
+    <div class="card">
+      <text class="card-label">最近收到</text>
+      <text class="card-val">{{lastRx}}</text>
+    </div>
+    <div class="card">
+      <text class="card-label">最近发送</text>
+      <text class="card-val">{{lastTx}}</text>
+    </div>
+
+    <div class="btn-main" @click="sendTest">
+      <text class="btn-main-text">发送测试</text>
+    </div>
+    <div class="btn-sub" @click="checkState">
+      <text class="btn-sub-text">连接自检</text>
+    </div>
+  </div>
+</template>
+
+<style>
+.page {
+  width: 336px;
+  height: 480px;
+  flex-direction: column;
+  align-items: center;
+  background-color: #000000;
+  padding-top: 8px;
+}
+
+.topbar {
+  width: 336px;
+  height: 40px;
+  flex-direction: row;
+  align-items: center;
+  padding-left: 8px;
+  background-color: #111111;
+}
+
+.back-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 16px;
+  background-color: #2C2C2E;
+  justify-content: center;
+  align-items: center;
+  margin-right: 12px;
+}
+
+.back-icon {
+  font-size: 24px;
+  color: #ffffff;
+}
+
+.app-name {
+  font-size: 30px;
+  font-weight: bold;
+  color: #33B4FF;
+}
+
+.status {
+  font-size: 18px;
+  color: #888888;
+  margin-top: 4px;
+}
+
+.stat-row {
+  flex-direction: row;
+  align-items: center;
+  margin-top: 6px;
+}
+
+.stat-label {
+  font-size: 18px;
+  color: #888888;
+}
+
+.stat-val {
+  font-size: 20px;
+  color: #33B4FF;
+  margin-left: 4px;
+  margin-right: 12px;
+}
+
+.stat-bad {
+  color: #FF6B6B;
+}
+
+.err-line {
+  font-size: 16px;
+  color: #FF6B6B;
+  margin-top: 2px;
+  min-height: 20px;
+}
+
+.card {
+  width: 300px;
+  min-height: 60px;
+  border-radius: 16px;
+  background-color: #1C1C1E;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 6px 16px;
+  margin-top: 8px;
+}
+
+.card-label {
+  font-size: 16px;
+  color: #888888;
+}
+
+.card-val {
+  font-size: 18px;
+  color: #ffffff;
+  margin-top: 2px;
+}
+
+.btn-main {
+  width: 236px;
+  height: 60px;
+  border-radius: 30px;
+  background-color: #33B4FF;
+  justify-content: center;
+  align-items: center;
+  margin-top: 16px;
+}
+
+.btn-main-text {
+  font-size: 26px;
+  font-weight: bold;
+  color: #000000;
+}
+
+.btn-sub {
+  width: 236px;
+  height: 52px;
+  border-radius: 26px;
+  background-color: #2C2C2E;
+  justify-content: center;
+  align-items: center;
+  margin-top: 10px;
+}
+
+.btn-sub-text {
+  font-size: 22px;
+  color: #ffffff;
+}
+</style>
+
+<script>
+// 链路调试页：直接操作 interconnect 原始收发（绕过 bridge.js 路由），
+// 保留 1006/202/204 分类与热身重试逻辑，便于独立定位链路问题。
+// 注意：本页会抢占单例的 onmessage，onDestroy 时必须调 initBridge 归还。
+import interconnect from '@system.interconnect'
+import router from '@system.router'
+import { initBridge } from '../../common/bridge'
+
+export default {
+  private: {
+    status: '初始化',
+    lastRx: '-',
+    lastTx: '-',
+    lastErr: '',
+    rxCount: 0,
+    txOk: 0,
+    txFail: 0,
+    sendMode: '',
+    linkReady: false
+  },
+
+  computed: {
+    statusText() {
+      return '链路: ' + this.status
+    }
+  },
+
+  onInit() {
+    this.connect = interconnect.instance()
+    this.bindConnectEvents()
+    this.status = '等待中'
+    this.checkState()
+    setTimeout(() => {
+      this.sendMsg('watch_hello', { from: 'watch', page: 'debug' })
+    }, 500)
+  },
+
+  onDestroy() {
+    // 不置空 onmessage（会破坏其他页面），改为重新挂回 bridge.js 的统一处理器
+    initBridge()
+  },
+
+  bindConnectEvents() {
+    this.connect.onopen = () => {
+      this.linkReady = true
+      this.status = '已连接'
+    }
+    this.connect.onclose = () => {
+      this.linkReady = false
+      this.status = '蓝牙未连接'
+    }
+    this.connect.onerror = (data) => {
+      if (data && data.code === 1006) this.linkReady = false
+      this.status = '错误' + (data && data.code ? ' ' + data.code : '')
+      this.lastErr = 'onerror code=' + (data && data.code) + ' ' + (data && data.data)
+    }
+    this.connect.onmessage = (data) => {
+      this.handleMessage(data.data)
+    }
+  },
+
+  handleMessage(text) {
+    if (typeof text === 'object' && text !== null) {
+      try { text = JSON.stringify(text) } catch (e) { text = String(text) }
+    }
+    if (typeof text !== 'string' || !text) return
+    this.rxCount += 1
+    this.lastRx = this.truncate(text)
+    console.log('RX: ' + text)
+
+    let msg = null
+    try { msg = JSON.parse(text) } catch (e) { return }
+    // 解系统嵌套 {"json":"..."}
+    if (msg && typeof msg.json === 'string' && msg.json) {
+      try { msg = JSON.parse(msg.json) } catch (e) { return }
+    }
+    if (!msg || !msg.type) return
+
+    // ESP32 心跳 ping -> 回 pong
+    if (msg.type === 'ping') {
+      this.sendRaw(JSON.stringify({
+        v: 3, id: msg.id || '', timestamp: Date.now(),
+        replyTo: 'ping', type: 'pong', payload: { ok: true, from: 'watch' }
+      }))
+      return
+    }
+    // ESP32 主动推送类消息：只展示，绝不回 ack（防止 ack 回环）
+    if (msg.type === 'wifi_status' || msg.type === 'providers_push' ||
+        msg.type === 'providers_pull' || msg.type === 'chat_start' ||
+        msg.type === 'chat_delta' || msg.type === 'chat_done' ||
+        msg.type === 'chat_error' || msg.type === 'pong' ||
+        msg.type === 'echo_test_ack' || msg.type === 'watch_hello_ack') {
+      return
+    }
+    // 仅对 echo_test 回 ack（本页的测试消息）
+    if (msg.type === 'echo_test') {
+      this.sendRaw(JSON.stringify({
+        v: 3, id: msg.id || '', timestamp: Date.now(),
+        replyTo: 'echo_test', type: 'echo_test_ack',
+        payload: { ok: true, echo: msg.payload || {} }
+      }))
+    }
+  },
+
+  sendMsg(type, payload) {
+    this.sendRaw(JSON.stringify({
+      v: 3, id: 'w' + Date.now(), timestamp: Date.now(),
+      type: type, payload: payload
+    }))
+  },
+
+  sendRaw(text) {
+    this.lastTx = this.truncate(text)
+    if (!this.connect) {
+      this.txFail += 1
+      this.lastErr = 'no connect instance'
+      return
+    }
+    if (!this.linkReady) {
+      this.txFail += 1
+      this.lastErr = '蓝牙未连接，ESP32重连中，请稍候'
+      this.status = '蓝牙未连接'
+      this.checkState()
+      return
+    }
+    const mode = this.sendMode || 'obj'
+    this.trySend(text, mode, (ok) => {
+      if (ok) return
+      if (!this.linkReady) return
+      if (this.sendMode) {
+        this.checkState()
+        setTimeout(() => {
+          if (this.linkReady) this.trySend(text, mode, () => {})
+        }, 800)
+        return
+      }
+      const alt = mode === 'obj' ? 'str' : 'obj'
+      this.trySend(text, alt, (ok2) => {
+        if (ok2) this.sendMode = alt
+      })
+    })
+  },
+
+  trySend(text, mode, done) {
+    const payload = mode === 'str' ? text : { json: text }
+    this.connect.send({
+      data: payload,
+      success: () => {
+        this.txOk += 1
+        this.lastErr = ''
+        this.linkReady = true
+        this.status = '已连接'
+        if (!this.sendMode) this.sendMode = mode
+        done(true)
+      },
+      fail: (data, code) => {
+        this.txFail += 1
+        if (code === 1006) {
+          this.linkReady = false
+          this.lastErr = '蓝牙断开(code 1006)，ESP32重连中'
+          this.status = '蓝牙未连接'
+          done(false)
+          return
+        }
+        this.lastErr = 'send失败[' + mode + '] code=' + code + ' ' +
+                       (data && data.data ? data.data : '')
+        done(false)
+      }
+    })
+  },
+
+  sendTest() {
+    this.sendMsg('echo_test', { msg: 'hello from watch', time: Date.now() })
+  },
+
+  checkState() {
+    this.connect.getReadyState({
+      success: (data) => {
+        this.linkReady = (data.status === 1)
+        const s = data.status === 1 ? '已连接' : (data.status === 2 ? '蓝牙未连接' : '未知' + data.status)
+        this.status = s
+      },
+      fail: () => { this.status = '查询失败' }
+    })
+  },
+
+  goBack() {
+    router.back()
+  },
+
+  // 右滑返回（根元素 @swipe）
+  onSwipe(e) {
+    if (e.direction === 'right') router.back()
+  },
+
+  truncate(text) {
+    if (!text) return '-'
+    return text.length > 60 ? text.substring(0, 60) + '...' : text
+  }
+}
+</script>

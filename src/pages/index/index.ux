@@ -1,0 +1,117 @@
+<template>
+  <div class="page">
+    <text class="app-name">宏宏AIHub</text>
+    <text class="status">{{statusText}}</text>
+
+    <!-- 主按钮：进入对话 -->
+    <div class="btn-main" @click="goChat">
+      <text class="btn-main-text">开始对话</text>
+    </div>
+
+    <!-- 副按钮 -->
+    <div class="btn-sub" @click="goSetting">
+      <text class="btn-sub-text">设置 / 配网</text>
+    </div>
+    <div class="btn-sub" @click="goDebug">
+      <text class="btn-sub-text">链路调试</text>
+    </div>
+  </div>
+</template>
+
+<style>
+.page {
+  width: 336px;
+  height: 480px;
+  flex-direction: column;
+  align-items: center;
+  background-color: #000000;
+  padding-top: 80px;
+}
+
+.app-name {
+  font-size: 36px;
+  font-weight: bold;
+  color: #33B4FF;
+}
+
+.status {
+  font-size: 18px;
+  color: #888888;
+  margin-top: 8px;
+  margin-bottom: 40px;
+}
+
+.btn-main {
+  width: 236px;
+  height: 64px;
+  border-radius: 32px;
+  background-color: #33B4FF;
+  justify-content: center;
+  align-items: center;
+}
+
+.btn-main-text {
+  font-size: 26px;
+  font-weight: bold;
+  color: #000000;
+}
+
+.btn-sub {
+  width: 236px;
+  height: 56px;
+  border-radius: 28px;
+  background-color: #2C2C2E;
+  justify-content: center;
+  align-items: center;
+  margin-top: 16px;
+}
+
+.btn-sub-text {
+  font-size: 24px;
+  color: #ffffff;
+}
+</style>
+
+<script>
+import router from '@system.router'
+import { initBridge, isLinkReady, onLinkState, offLinkState, checkLink } from '../../common/bridge'
+
+export default {
+  private: {
+    linkText: '检测中…'
+  },
+
+  computed: {
+    statusText() {
+      return '蓝牙: ' + this.linkText
+    }
+  },
+
+  onInit() {
+    // 提前初始化桥接（chat 页会复用同一单例）
+    initBridge()
+    this._handler = (ready) => {
+      this.linkText = ready ? '已连接' : '未连接'
+    }
+    onLinkState(this._handler)
+    this.linkText = isLinkReady() ? '已连接' : '未连接'
+    setTimeout(() => { checkLink() }, 300)
+  },
+
+  onDestroy() {
+    offLinkState(this._handler)
+  },
+
+  goChat() {
+    router.push({ uri: 'pages/chat' })
+  },
+
+  goSetting() {
+    router.push({ uri: 'pages/setting' })
+  },
+
+  goDebug() {
+    router.push({ uri: 'pages/debug' })
+  }
+}
+</script>

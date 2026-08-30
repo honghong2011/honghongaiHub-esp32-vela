@@ -1,0 +1,21 @@
+# ===== 依赖与构建产物 =====
+node_modules/
+build/
+dist/
+.temp*/
+
+# ===== AI / IDE 工具目录 =====
+.trae/
+.vscode/
+.idea/
+.claude/
+.agents/
+*.iml
+
+# ===== 系统杂项 =====
+Thumbs.db
+Desktop.ini
+.DS_Store
+*.log
+.nyc_output
+coverage/

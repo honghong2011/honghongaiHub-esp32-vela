@@ -1,0 +1,457 @@
+<template>
+  <div class="page" @swipe="onSwipe">
+    <!-- 顶部状态条：返回/蓝牙/当前模型 + 新对话 -->
+    <div class="topbar">
+      <div class="back-btn" @click="goBack">
+        <text class="back-icon">‹</text>
+      </div>
+      <div class="dot {{btReady ? 'dot-on' : 'dot-off'}}"></div>
+      <text class="topbar-text" @click="goProviders">{{currentLabel}}</text>
+      <div class="btn-new" @click="confirmNewChat">
+        <text class="btn-new-text">新对话</text>
+      </div>
+    </div>
+
+    <!-- 消息气泡流：scroll+div 同构行（本工程 <list> 真机不渲染，
+         providers 页同款已验证方案；行内不用 if/show，只靠 class 切换） -->
+    <scroll class="msg-scroll" scroll-y="true">
+      <div class="msg-row {{$item.role === 'user' ? 'row-user' : 'row-ai'}}" for="{{messages}}">
+        <div class="bubble {{$item.role === 'user' ? 'bub-u' : ''}}{{$item.role === 'error' ? ' bub-e' : ''}}{{$item.role === 'divider' ? ' bub-d' : ''}}">
+          <text class="bubble-text {{$item.role === 'divider' ? 'divider-text' : ''}}">{{$item.text}}</text>
+        </div>
+      </div>
+      <div class="chat-tail"></div>
+    </scroll>
+
+    <!-- 底部：生成中提示 / 输入触发栏 -->
+    <div class="bottombar">
+      <div class="input-bar" @click="showKeyboard">
+        <text class="input-hint">{{generating ? '思考中…' : '点击输入'}}</text>
+      </div>
+    </div>
+  </div>
+</template>
+
+<style>
+.page {
+  width: 336px;
+  height: 480px;
+  flex-direction: column;
+  background-color: #000000;
+}
+
+.topbar {
+  width: 336px;
+  height: 44px;
+  flex-direction: row;
+  align-items: center;
+  padding-left: 8px;
+  padding-right: 12px;
+  background-color: #111111;
+}
+
+.back-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 16px;
+  background-color: #2C2C2E;
+  justify-content: center;
+  align-items: center;
+  margin-right: 8px;
+}
+
+.back-icon {
+  font-size: 24px;
+  color: #ffffff;
+}
+
+.dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 6px;
+  margin-right: 8px;
+}
+
+.dot-on { background-color: #33B4FF; }
+.dot-off { background-color: #555555; }
+
+.topbar-text {
+  font-size: 18px;
+  color: #cccccc;
+  flex: 1;
+  lines: 1;
+  text-overflow: ellipsis;
+}
+
+.btn-new {
+  padding: 4px 12px;
+  border-radius: 16px;
+  background-color: #2C2C2E;
+}
+
+.btn-new-text {
+  font-size: 18px;
+  color: #ffffff;
+}
+
+/* 消息滚动区：scroll 竖滚必须定高（480 - 44 顶栏 - 52 底栏），
+   且显式 column——本机 scroll 子元素默认横排 */
+.msg-scroll {
+  width: 336px;
+  height: 384px;
+  flex-direction: column;
+  background-color: #000000;
+}
+
+.msg-row {
+  width: 336px;
+  flex-direction: row;
+  padding: 3px 12px;
+}
+
+.row-user { justify-content: flex-end; }
+.row-ai { justify-content: flex-start; }
+
+.bubble {
+  max-width: 256px;
+  border-radius: 14px;
+  padding: 8px 12px;
+  background-color: #1C1C1E;
+}
+
+/* 用户气泡：蓝底（class 追加覆盖） */
+.bub-u { background-color: #16567d; }
+
+/* 错误气泡：暗红底 */
+.bub-e { background-color: #4d1a1a; }
+
+/* 分割线气泡：透明居中 */
+.bub-d {
+  background-color: transparent;
+  width: 312px;
+  align-items: center;
+}
+
+.bubble-text {
+  font-size: 20px;
+  color: #ffffff;
+  line-height: 28px;
+}
+
+.divider-text {
+  color: #555555;
+  font-size: 16px;
+  text-align: center;
+}
+
+/* 列表底部留白（最后一条不贴输入栏） */
+.chat-tail {
+  width: 336px;
+  height: 12px;
+}
+
+.bottombar {
+  width: 336px;
+  height: 52px;
+  flex-direction: row;
+  align-items: center;
+  padding: 6px 12px;
+  background-color: #111111;
+}
+
+.input-bar {
+  flex: 1;
+  height: 40px;
+  border-radius: 20px;
+  background-color: #2C2C2E;
+  justify-content: center;
+  padding-left: 16px;
+  padding-right: 16px;
+}
+
+.input-hint {
+  font-size: 18px;
+  color: #888888;
+  lines: 1;
+  text-overflow: ellipsis;
+}
+</style>
+
+<script>
+import router from '@system.router'
+import prompt from '@system.prompt'
+import {
+  initBridge, isLinkReady, onLinkState, offLinkState, checkLink,
+  on, off, send, sendChatRequest, buildContext, SYSTEM_PROMPT
+} from '../../common/bridge'
+import {
+  loadProviders, loadCurrent, appendRecord, readRecentRecords, trimChatIfNeeded
+} from '../../common/store'
+
+// 上下文数组（模块级，页面重建时保留）
+let _context = [{ role: 'system', content: SYSTEM_PROMPT }]
+let _cidSeq = 0
+
+export default {
+  private: {
+    messages: [],          // 渲染用气泡 [{role, text}]
+    generating: false,
+    btReady: false,
+    currentLabel: '未选择模型',
+    current: { provider: '', model: '' },
+    providers: []
+  },
+
+  onInit() {
+    initBridge()
+    this.bindBridge()
+    this.bindLinkState()
+    // 首屏：读最近 20 条记录 + 当前选择
+    readRecentRecords(20, (records) => {
+      const arr = []
+      for (let i = 0; i < records.length; i++) {
+        arr.push({ role: records[i].role, text: records[i].text })
+      }
+      this.messages = arr
+    })
+    loadCurrent((cur) => {
+      this.current = cur
+      this.updateCurrentLabel()
+    })
+    loadProviders((list) => { this.providers = list })
+    trimChatIfNeeded()
+    // 主动拉 WiFi 状态（ESP32 会推 wifi_status）
+    setTimeout(() => { send('wifi_query', {}) }, 600)
+  },
+
+  onDestroy() {
+    offLinkState(this._linkHandler)
+    off('chat_start', this._onStart)
+    off('chat_delta', this._onDelta)
+    off('chat_done', this._onDone)
+    off('chat_error', this._onError)
+    off('wifi_status', this._onWifi)
+  },
+
+  // ---------- 桥接事件绑定 ----------
+  bindBridge() {
+    const self = this
+    this._onStart = (payload) => { self.onChatStart(payload) }
+    this._onDelta = (payload) => { self.onChatDelta(payload) }
+    this._onDone = (payload) => { self.onChatDone(payload) }
+    this._onError = (payload) => { self.onChatError(payload) }
+    this._onWifi = (payload) => { self.onWifiStatus(payload) }
+    on('chat_start', this._onStart)
+    on('chat_delta', this._onDelta)
+    on('chat_done', this._onDone)
+    on('chat_error', this._onError)
+    on('wifi_status', this._onWifi)
+  },
+
+  bindLinkState() {
+    const self = this
+    this._linkHandler = (ready) => {
+      self.btReady = ready
+    }
+    onLinkState(this._linkHandler)
+    this.btReady = isLinkReady()
+    checkLink()
+  },
+
+  // 触发渲染：本机运行时对数组原地 push/splice 的响应不可靠
+  // （providers 页同款教训），统一整组替换刷新
+  repaint() {
+    this.messages = this.messages.slice()
+  },
+
+  // ---------- 流式接收 ----------
+  onChatStart(payload) {
+    this._aiCid = payload.cid
+    this.messages.push({ role: 'assistant', text: '' })
+    this._aiText = ''
+    this._lastSeq = 0
+    this.repaint()
+  },
+
+  onChatDelta(payload) {
+    if (payload.cid !== this._aiCid) return
+    // seq 连续性检查（缺号记录，结尾标注）
+    if (payload.seq && payload.seq !== this._lastSeq + 1) {
+      this._seqGap = true
+    }
+    this._lastSeq = payload.seq || (this._lastSeq + 1)
+    this._aiText += payload.text || ''
+    // 原地更新最后一条气泡（整组替换触发渲染）
+    const last = this.messages[this.messages.length - 1]
+    if (last && last.role === 'assistant') {
+      this.messages.splice(this.messages.length - 1, 1, { role: 'assistant', text: this._aiText })
+      this.repaint()
+    }
+  },
+
+  onChatDone(payload) {
+    if (payload.cid !== this._aiCid) return
+    let text = this._aiText || ''
+    if (this._seqGap) text += '\n[传输中断]'
+    const last = this.messages[this.messages.length - 1]
+    if (last && last.role === 'assistant') {
+      this.messages.splice(this.messages.length - 1, 1, { role: 'assistant', text: text })
+    }
+    // 上下文追加 AI 回复（只追加原则）
+    _context.push({ role: 'assistant', content: text })
+    appendRecord('assistant', text, this._aiCid)
+    this.generating = false
+    this._seqGap = false
+    this.repaint()
+  },
+
+  onChatError(payload) {
+    if (payload.cid !== this._aiCid) return
+    const text = '出错了: ' + (payload.code || '') + ' ' + (payload.message || '').substring(0, 60)
+    this.messages.push({ role: 'error', text: text })
+    appendRecord('error', text, payload.cid)
+    // 从上下文移除未获回复的 user 消息（失败不留在上下文，避免污染）
+    if (_context.length > 1 && _context[_context.length - 1].role === 'user') {
+      _context.pop()
+    }
+    this.generating = false
+    this.repaint()
+  },
+
+  onWifiStatus(payload) {
+    console.log('wifi_status: ' + JSON.stringify(payload))
+  },
+
+  // ---------- 发送 ----------
+  doSend(text) {
+    const content = (text || '').trim()
+    if (!content) return
+    if (this.generating) return
+
+    // 检查供应商配置（需要完整对象：id/baseUrl/apiKey）
+    let providerObj = null
+    for (let i = 0; i < this.providers.length; i++) {
+      if (this.providers[i].id === this.current.provider) {
+        providerObj = this.providers[i]
+        break
+      }
+    }
+    if (!providerObj || !this.current.model) {
+      this.messages.push({ role: 'error', text: '未选择模型，请点击顶部切换' })
+      this.repaint()
+      return
+    }
+
+    // 气泡 + 记录 + 上下文（只追加）
+    this.messages.push({ role: 'user', text: content })
+    this.repaint()
+    appendRecord('user', content, '')
+    _context.push({ role: 'user', content: content })
+    this.generating = true
+
+    _cidSeq++
+    const cid = 'c' + Date.now() + '_' + _cidSeq
+    this._aiCid = cid
+    this._aiText = ''
+    this._lastSeq = 0
+    this._seqGap = false
+
+    // 发送（内部自动分包；baseUrl/apiKey 随请求发给 ESP32，不落盘）
+    const ok = sendChatRequest(cid, providerObj, this.current.model, buildContext(_context))
+    if (!ok) {
+      this.messages.push({ role: 'error', text: '蓝牙未连接，ESP32重连中' })
+      this.repaint()
+      this.generating = false
+      if (_context[_context.length - 1].role === 'user') _context.pop()
+    }
+  },
+
+  // ---------- 键盘页跳转 ----------
+  showKeyboard() {
+    if (this.generating) return
+    // 结果经 globalThis 传回（onShow 消费），target 标记归属
+    globalThis.__kbTarget = 'chat'
+    globalThis.__kbResult = null
+    router.push({
+      uri: 'pages/keyboard',
+      params: {
+        target: 'chat',
+        title: '输入消息',
+        value: '',
+        maxlen: '500'
+      }
+    })
+  },
+
+  // ---------- 新对话 ----------
+  confirmNewChat() {
+    const self = this
+    prompt.showDialog({
+      title: '新对话',
+      message: '清空上下文并插入分割线？',
+      buttons: [
+        { text: '取消', color: '#888888' },
+        { text: '确定', color: '#33B4FF' }
+      ],
+      success: (data) => {
+        if (data.index === 1) self.newChat()
+      }
+    })
+  },
+
+  newChat() {
+    this.messages.push({ role: 'divider', text: '── 新对话 ──' })
+    this.repaint()
+    appendRecord('divider', '── 新对话 ──', '')
+    _context = [{ role: 'system', content: SYSTEM_PROMPT }]
+  },
+
+  // ---------- 右滑返回（根元素 @swipe + direction right） ----------
+  onSwipe(e) {
+    if (e.direction === 'right') router.back()
+  },
+
+  // ---------- 导航 ----------
+  goProviders() {
+    router.push({ uri: 'pages/providers' })
+  },
+
+  goBack() {
+    router.back()
+  },
+
+  // ---------- 工具 ----------
+  updateCurrentLabel() {
+    let label = '未选择模型'
+    if (this.current.model) {
+      let pname = ''
+      for (let i = 0; i < this.providers.length; i++) {
+        if (this.providers[i].id === this.current.provider) {
+          pname = this.providers[i].name
+          break
+        }
+      }
+      label = (pname ? pname + ' / ' : '') + this.current.model
+    }
+    this.currentLabel = label
+  },
+
+  onShow() {
+    // 键盘页返回：消费结果并自动发送
+    const result = globalThis.__kbResult
+    if (result && result.target === 'chat') {
+      globalThis.__kbResult = null
+      this.doSend(result.text)
+      return
+    }
+    // 从 providers 页返回时刷新当前选择
+    loadCurrent((cur) => {
+      this.current = cur
+      loadProviders((list) => {
+        this.providers = list
+        this.updateCurrentLabel()
+      })
+    })
+  }
+}
+</script>
