@@ -11,17 +11,17 @@
 宏宏AIHub 的**手表端**，一个运行在小米手环 10 Pro 上的 Vela 快应用。它通过经典蓝牙 SPP 直连一块 ESP32 开发板，把你的消息转发给 OpenAI 兼容的大模型 API（DeepSeek / Kimi / GLM…），并以打字机效果流式显示回复——全程不经过手机，也不经过任何中间服务器。
 
 ```
-小米手环 10 Pro（本仓库）↔ 经典蓝牙 SPP ↔ ESP32（固件仓库）↔ Wi-Fi ↔ LLM API
+小米手环 10 Pro（本仓库）<--经典蓝牙 SPP--> ESP32（固件仓库）<--Wi-Fi--> LLM API
 ```
 
 ## 功能
 
-- 💬 微信式聊天界面：气泡流、打字机效果、聊天记录本地保存（JSONL）
-- ⌨️ 内置中文拼音键盘，支持扫描选网 / 手动输入等所有文本场景
-- 🔌 多供应商 / 多模型管理，手表上一键切换
-- 📶 在手表上直接给 ESP32 配网（扫描 WiFi 列表或手动输入）
-- 🌐 Web 配置端入口：在电脑浏览器里管理 AI 供应商，一键推送到手环
-- 🛠 内置链路调试页（收发统计、echo 测试）
+- 微信式聊天界面：气泡流、打字机效果、聊天记录本地保存（JSONL）
+- 内置中文拼音键盘，支持扫描选网、手动输入等所有文本场景
+- 多供应商 / 多模型管理，手表上一键切换
+- 在手表上直接给 ESP32 配网（扫描 WiFi 列表或手动输入）
+- Web 配置端入口：在电脑浏览器里管理 AI 供应商，一键推送到手环
+- 内置链路调试页（收发统计、echo 测试）
 
 ## 硬件与系统
 
@@ -43,6 +43,54 @@ npm run build
 2. 手表打开宏宏AIHub → 设置 → 扫描 WiFi，给 ESP32 配网
 3. 电脑浏览器打开 ESP32 的 IP，填入 AI 供应商（地址 / API Key / 模型列表）→ 推送到手环
 4. 手表端选择模型，开聊！
+
+## 供应商配置格式
+
+供应商由 Web 配置端（ESP32 固件提供）统一管理，格式为 JSON 数组，在 Web 页粘贴保存后「推送到手环」即可同步到手表。`apiKey` 请自行填写：
+
+```json
+[
+  {
+    "id": "p1",
+    "name": "opencode go",
+    "baseUrl": "https://opencode.ai/zen/v1",
+    "apiKey": "",
+    "models": ["ling-3.0-flash-fin-free", "mimo-v2.5-free"]
+  },
+  {
+    "id": "p2",
+    "name": "DeepSeek",
+    "baseUrl": "https://api.deepseek.com/v1",
+    "apiKey": "",
+    "models": ["deepseek-v4-flash", "deepseek-v4-pro"]
+  },
+  {
+    "id": "p3",
+    "name": "openrouter",
+    "baseUrl": "https://openrouter.ai/api/v1",
+    "apiKey": "",
+    "models": ["openrouter/free", "nvidia/nemotron-3-ultra-550b-a55b:free"]
+  },
+  {
+    "id": "p4",
+    "name": "阶跃星辰",
+    "baseUrl": "https://api.stepfun.com/v1",
+    "apiKey": "",
+    "models": ["step-3.5-flash", "step-3.7-flash"]
+  },
+  {
+    "id": "p5",
+    "name": "智谱AI GLM",
+    "baseUrl": "https://open.bigmodel.cn/api/paas/v4",
+    "apiKey": "",
+    "models": ["glm-5.3-flash", "glm-4.7", "GLM-4.7-Flash", "GLM-4.6V-Flash"]
+  }
+]
+```
+
+## 免责声明
+
+本项目由 AI 辅助开发并生成，未经严格测试，稳定性有限；遇到报错请自行排查与尝试。
 
 ## 目录结构
 
