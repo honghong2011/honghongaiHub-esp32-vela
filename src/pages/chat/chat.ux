@@ -14,9 +14,9 @@
 
     <!-- 消息气泡流：scroll+div 同构行（本工程 <list> 真机不渲染，
          providers 页同款已验证方案；行内不用 if/show，只靠 class 切换） -->
-    <scroll class="msg-scroll" scroll-y="true">
+    <scroll class="msg-scroll" scroll-y="true" id="msgScroll">
       <div class="msg-row {{$item.role === 'user' ? 'row-user' : 'row-ai'}}" for="{{messages}}">
-        <div class="bubble {{$item.role === 'user' ? 'bub-u' : ''}}{{$item.role === 'error' ? ' bub-e' : ''}}{{$item.role === 'divider' ? ' bub-d' : ''}}">
+        <div class="bubble {{$item.role === 'user' ? 'bub-u' : ''}}{{$item.role === 'error' ? ' bub-e' : ''}}{{$item.role === 'divider' ? ' bub-n' : ''}}">
           <text class="bubble-text {{$item.role === 'divider' ? 'divider-text' : ''}}">{{$item.text}}</text>
         </div>
       </div>
@@ -125,12 +125,9 @@
 /* 错误气泡：暗红底 */
 .bub-e { background-color: #4d1a1a; }
 
-/* 分割线气泡：透明居中 */
-.bub-d {
-  background-color: transparent;
-  width: 312px;
-  align-items: center;
-}
+/* 新对话标记气泡：琥珀底黑字，左侧同 AI 气泡结构（透明底分隔线
+   在本机真机不渲染，改为完全复用已验证的气泡行结构） */
+.bub-n { background-color: #FFA726; }
 
 .bubble-text {
   font-size: 20px;
@@ -139,9 +136,8 @@
 }
 
 .divider-text {
-  color: #555555;
+  color: #000000;
   font-size: 16px;
-  text-align: center;
 }
 
 /* 列表底部留白（最后一条不贴输入栏） */
@@ -188,8 +184,11 @@ import {
   loadProviders, loadCurrent, appendRecord, readRecentRecords, trimChatIfNeeded
 } from '../../common/store'
 
-// 上下文数组（模块级，页面重建时保留；system 仅此一份，直传给 AI）
+// 上下文数组（模块级，页面重建时保留；system 仅此一份，发送前刷新）
 let _context = [{ role: 'system', content: buildSystemPrompt() }]
+// 新对话序号：开新对话时 +1。发送时记下序号，回复回来时序号对不上
+// （说明中途开过新对话），这条回复只上屏进历史，不进新会话的上下文
+let _ctxEpoch = 0
 let _cidSeq = 0
 
 export default {
@@ -206,13 +205,14 @@ export default {
     initBridge()
     this.bindBridge()
     this.bindLinkState()
-    // 首屏：读最近 50 条记录 + 当前选择
+    // 首屏：读最近 50 条记录 + 当前选择（加载完直接滚到最新消息）
     readRecentRecords(50, (records) => {
       const arr = []
       for (let i = 0; i < records.length; i++) {
         arr.push({ role: records[i].role, text: records[i].text })
       }
       this.messages = arr
+      this._scrollToBottom()
     })
     loadCurrent((cur) => {
       this.current = cur
@@ -264,6 +264,15 @@ export default {
     this.messages = this.messages.slice()
   },
 
+  // 滚到最新消息：布局更新后定位，top 给超大值由组件按边界收敛到底
+  _scrollToBottom() {
+    const self = this
+    setTimeout(() => {
+      const el = self.$element('msgScroll')
+      if (el) el.scrollTo({ top: 999999, left: 0, behavior: 'instant' })
+    }, 100)
+  },
+
   // ---------- 流式接收 ----------
   onChatStart(payload) {
     this._aiCid = payload.cid
@@ -271,6 +280,7 @@ export default {
     this._aiText = ''
     this._lastSeq = 0
     this.repaint()
+    this._scrollToBottom()
   },
 
   onChatDelta(payload) {
@@ -297,12 +307,15 @@ export default {
     if (last && last.role === 'assistant') {
       this.messages.splice(this.messages.length - 1, 1, { role: 'assistant', text: text })
     }
-    // 上下文追加 AI 回复（只追加原则）
-    _context.push({ role: 'assistant', content: text })
+    // 回复进上下文；若中途开过新对话（序号对不上）则只上屏进历史
+    if (this._epochAtSend === _ctxEpoch) {
+      _context.push({ role: 'assistant', content: text })
+    }
     appendRecord('assistant', text, this._aiCid)
     this.generating = false
     this._seqGap = false
     this.repaint()
+    this._scrollToBottom()
   },
 
   onChatError(payload) {
@@ -316,6 +329,7 @@ export default {
     }
     this.generating = false
     this.repaint()
+    this._scrollToBottom()
   },
 
   onWifiStatus(payload) {
@@ -345,6 +359,7 @@ export default {
     // 气泡 + 记录 + 上下文（只追加）
     this.messages.push({ role: 'user', text: content })
     this.repaint()
+    this._scrollToBottom()
     appendRecord('user', content, '')
     _context.push({ role: 'user', content: content })
     this.generating = true
@@ -355,9 +370,13 @@ export default {
     this._aiText = ''
     this._lastSeq = 0
     this._seqGap = false
+    this._epochAtSend = _ctxEpoch
 
-    // 发送（内部自动分包；baseUrl/apiKey 随请求发给 ESP32，不落盘；
-    // _context 直传：system 仅开头一份，前缀稳定利于服务端缓存命中）
+    // 每次发送前重新生成 system prompt（同一天内容不变，缓存不受影响；
+    // 跨天自动带新日期）
+    _context[0] = { role: 'system', content: buildSystemPrompt() }
+
+    // 发送（内部自动分包；baseUrl/apiKey 随请求发给 ESP32，不落盘）
     const ok = sendChatRequest(cid, providerObj, this.current.model, _context)
     if (!ok) {
       this.messages.push({ role: 'error', text: '蓝牙未连接，ESP32重连中' })
@@ -385,26 +404,22 @@ export default {
   },
 
   // ---------- 新对话 ----------
+  // 直接执行：本机 prompt.showDialog 官方文档无此接口，按钮回调不可靠
+  // （点了确定没反应）。开新对话本身可逆（历史保留、只切 AI 上下文），
+  // 无需确认弹窗
   confirmNewChat() {
-    const self = this
-    prompt.showDialog({
-      title: '新对话',
-      message: '清空上下文并插入分割线？',
-      buttons: [
-        { text: '取消', color: '#888888' },
-        { text: '确定', color: '#33B4FF' }
-      ],
-      success: (data) => {
-        if (data.index === 1) self.newChat()
-      }
-    })
+    this.newChat()
   },
 
   newChat() {
-    this.messages.push({ role: 'divider', text: '── 新对话 ──' })
+    // 标记气泡与 AI 气泡同构（左侧黄底黑字），进历史库可回看
+    this.messages.push({ role: 'divider', text: '-- 新对话 --' })
     this.repaint()
-    appendRecord('divider', '── 新对话 ──', '')
+    this._scrollToBottom()
+    appendRecord('divider', '-- 新对话 --', '')
+    _ctxEpoch++
     _context = [{ role: 'system', content: buildSystemPrompt() }]
+    try { prompt.showToast({ message: '已开启新对话' }) } catch (e) {}
   },
 
   // ---------- 右滑返回（根元素 @swipe + direction right） ----------
