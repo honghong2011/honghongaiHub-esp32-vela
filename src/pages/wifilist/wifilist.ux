@@ -1,0 +1,286 @@
+<template>
+  <div class="page" @swipe="onSwipe">
+    <!-- 顶部：返回 + 标题 -->
+    <div class="header">
+      <div class="back-btn" @click="goBack">
+        <text class="back-icon">‹</text>
+      </div>
+      <text class="header-title">选择 WiFi</text>
+    </div>
+
+    <!-- 扫描中提示：show 只挂普通 div（表单卡片同款已验证）；
+         scroll 不参与任何 show/if 翻转，从页面创建起常驻——
+         providers 页真机验证过的结构。设置页内嵌视图翻转 + scroll
+         的组合在本机实测整块不渲染（黑屏根因），故拆成独立页 -->
+    <div class="scan-tip" show="{{scanning}}">
+      <text class="scan-tip-text">正在扫描附近 WiFi…</text>
+    </div>
+
+    <!-- 同构行列表：AP 行 / 空态重试行 / 手动输入行，全靠 rows 数据切换 -->
+    <scroll class="body" scroll-y="true">
+      <div class="row" for="{{rows}}" @click="handleRow($item)">
+        <text class="ssid {{$item.dim ? 'ssid-dim' : ''}}">{{$item.name}}</text>
+        <text class="rssi">{{$item.right}}</text>
+      </div>
+      <div class="tail"></div>
+    </scroll>
+  </div>
+</template>
+
+<style>
+.page {
+  width: 336px;
+  height: 480px;
+  flex-direction: column;
+  background-color: #000000;
+}
+
+.header {
+  width: 336px;
+  height: 44px;
+  flex-direction: row;
+  align-items: center;
+  padding-left: 8px;
+  background-color: #111111;
+}
+
+.back-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 16px;
+  background-color: #2C2C2E;
+  justify-content: center;
+  align-items: center;
+  margin-right: 8px;
+}
+
+.back-icon {
+  font-size: 24px;
+  color: #ffffff;
+}
+
+.header-title {
+  font-size: 24px;
+  font-weight: bold;
+  color: #33B4FF;
+}
+
+.scan-tip {
+  width: 336px;
+  padding: 20px 0;
+  justify-content: center;
+  align-items: center;
+}
+
+.scan-tip-text {
+  font-size: 20px;
+  color: #888888;
+}
+
+/* scroll 三要素：定高 + 显式 column + 容器居中（providers 页同款） */
+.body {
+  width: 336px;
+  height: 436px;
+  flex-direction: column;
+  align-items: center;
+}
+
+.row {
+  width: 312px;
+  height: 52px;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  background-color: #1C1C1E;
+  border-radius: 12px;
+  padding-left: 16px;
+  padding-right: 16px;
+  margin-top: 4px;
+}
+
+.ssid {
+  font-size: 20px;
+  color: #ffffff;
+  flex: 1;
+  lines: 1;
+  text-overflow: ellipsis;
+}
+
+.ssid-dim {
+  color: #888888;
+}
+
+.rssi {
+  font-size: 16px;
+  color: #666666;
+  margin-left: 8px;
+}
+
+.tail {
+  width: 312px;
+  height: 12px;
+}
+</style>
+
+<script>
+import router from '@system.router'
+import prompt from '@system.prompt'
+import { initBridge, checkLink, on, off, send } from '../../common/bridge'
+
+export default {
+  private: {
+    scanning: true,
+    rows: []     // 同构渲染行：[{kind:'ap',ssid,name,right,dim} | {kind:'retry'|'manual',...}]
+  },
+
+  onInit() {
+    initBridge()
+    this._onApPush = (payload) => { this.onWifiApPush(payload) }
+    this._onList = (payload) => { this.onWifiList(payload) }
+    on('wifi_ap_push', this._onApPush)
+    on('wifi_list', this._onList)
+    // 页面级兜底收集状态（非渲染数据，不进 private）
+    this._apVer = -1
+    this._apBuf = []
+    this._selectedSsid = ''
+    this.startScan()
+  },
+
+  onDestroy() {
+    if (this._scanPoll) { clearInterval(this._scanPoll); this._scanPoll = null }
+    off('wifi_ap_push', this._onApPush)
+    off('wifi_list', this._onList)
+  },
+
+  onShow() {
+    // 键盘页返回：按 target 消费结果
+    const result = globalThis.__kbResult
+    if (!result) return
+    globalThis.__kbResult = null
+
+    if (result.target === 'scanmanual') {
+      // 手动输入的 SSID → 紧接着输密码
+      const ssid = result.text
+      this._selectedSsid = ssid
+      const self = this
+      setTimeout(() => {
+        globalThis.__kbTarget = 'passscan'
+        globalThis.__kbResult = null
+        router.push({ uri: 'pages/keyboard',
+                      params: { target: 'passscan', title: ssid, value: '', maxlen: '64' } })
+      }, 50)
+      return
+    }
+    if (result.target === 'passscan' && this._selectedSsid) {
+      // 扫描流程最后一步：选中的 SSID + 输入的密码一起发给 ESP32
+      const ssid = this._selectedSsid
+      this._selectedSsid = ''
+      send('wifi_set', { ssid: ssid, pass: result.text })
+      try { prompt.showToast({ message: '密码已发送，连接中…' }) } catch (e) {}
+      router.back()   // 回设置页：连接进度由 wifi_status 推送展示
+    }
+  },
+
+  // ---------- 扫描流程 ----------
+  startScan() {
+    // 防叠加：重扫时先清旧定时器
+    if (this._scanPoll) { clearInterval(this._scanPoll); this._scanPoll = null }
+    this.scanning = true
+    this.rows = []
+    send('wifi_scan', {})
+    // 等待期每 5s 直发 watch_hello（不走 bridge 的 8s 节流；断链时 send
+    // 内部 checkLink 校正状态，链路一恢复下一发即到）。ESP32 收到 hello
+    // 即补推扫描结果；收到结果后 onWifiList 停止轮询
+    const self = this
+    this._scanPoll = setInterval(() => {
+      if (!self.scanning) {
+        clearInterval(self._scanPoll)
+        self._scanPoll = null
+        return
+      }
+      checkLink()
+      send('watch_hello', { from: 'watch', page: 'scan' })
+    }, 5000)
+    // 60s 硬超时：提示重试（空态行点击即重扫）
+    setTimeout(() => {
+      if (self.scanning) {
+        self.scanning = false
+        if (self._scanPoll) { clearInterval(self._scanPoll); self._scanPoll = null }
+        self.rebuildRows([])
+        try { prompt.showToast({ message: '扫描超时，点列表重试' }) } catch (e) {}
+      }
+    }, 60000)
+  },
+
+  onWifiList(payload) {
+    if (this._scanPoll) { clearInterval(this._scanPoll); this._scanPoll = null }
+    this.scanning = false
+    this.rebuildRows(payload.aps || [])
+  },
+
+  // 页面级逐帧收集（bridge 层收齐后派发 wifi_list 的完成是幂等覆盖）
+  onWifiApPush(payload) {
+    if (!payload) return
+    const total = payload.total || 0
+    if (total === 0) {
+      // 空结果宣告：直接按空列表收尾
+      this.onWifiList({ aps: [] })
+      send('wifi_scan_ack', { ok: true, ver: payload.ver || 0, count: 0 })
+      return
+    }
+    if (!payload.ssid) return
+    if (this._apVer !== payload.ver) {
+      this._apVer = payload.ver
+      this._apBuf = []
+    }
+    this._apBuf.push({ ssid: payload.ssid, rssi: payload.rssi || 0 })
+    if (this._apBuf.length >= total) {
+      this.onWifiList({ aps: this._apBuf })
+      send('wifi_scan_ack', { ok: true, ver: payload.ver, count: this._apBuf.length })
+    }
+  },
+
+  // 扁平化为同构渲染行（providers 页同款方案）
+  rebuildRows(aps) {
+    const rows = []
+    for (let i = 0; i < aps.length; i++) {
+      rows.push({ kind: 'ap', ssid: aps[i].ssid || '', name: aps[i].ssid || '',
+                  right: (aps[i].rssi || 0) + ' dBm', dim: false })
+    }
+    if (aps.length === 0 && !this.scanning) {
+      rows.push({ kind: 'retry', ssid: '', name: '未扫描到网络，点此重试', right: '', dim: true })
+    }
+    rows.push({ kind: 'manual', ssid: '', name: '手动输入 SSID', right: '', dim: true })
+    this.rows = rows
+  },
+
+  // 统一行事件：AP 选网络 / 空态重扫 / 手动输入
+  handleRow(item) {
+    if (!item) return
+    if (item.kind === 'ap') {
+      if (this.scanning) return
+      this._selectedSsid = item.ssid
+      globalThis.__kbTarget = 'passscan'
+      globalThis.__kbResult = null
+      router.push({ uri: 'pages/keyboard',
+                    params: { target: 'passscan', title: item.ssid, value: '', maxlen: '64' } })
+    } else if (item.kind === 'retry') {
+      this.startScan()
+    } else if (item.kind === 'manual') {
+      globalThis.__kbTarget = 'scanmanual'
+      globalThis.__kbResult = null
+      router.push({ uri: 'pages/keyboard',
+                    params: { target: 'scanmanual', title: '手动输入 SSID', value: '', maxlen: '32' } })
+    }
+  },
+
+  goBack() {
+    router.back()
+  },
+
+  // 右滑返回（根元素 @swipe）
+  onSwipe(e) {
+    if (e.direction === 'right') this.goBack()
+  }
+}
+</script>

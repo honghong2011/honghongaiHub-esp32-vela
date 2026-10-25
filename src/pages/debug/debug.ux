@@ -168,12 +168,15 @@
 </style>
 
 <script>
-// 链路调试页：直接操作 interconnect 原始收发（绕过 bridge.js 路由），
-// 保留 1006/202/204 分类与热身重试逻辑，便于独立定位链路问题。
-// 注意：本页会抢占单例的 onmessage，onDestroy 时必须调 initBridge 归还。
+// 链路调试页：发送仍直连 interconnect 原始实例（保留 1006/202/204 分类
+// 与热身重试），收包显示改为挂 bridge.js 的分身（setRawTap）。
+// 旧版本页会抢占单例的 onmessage：抢占期间 providers_push / wifi_ap_push
+// 等帧被本页整包丢弃（只展示不处理），业务表现为"链路通但推送不吃"。
 import interconnect from '@system.interconnect'
 import router from '@system.router'
-import { initBridge } from '../../common/bridge'
+import {
+  initBridge, setRawTap, onLinkState, offLinkState, isLinkReady
+} from '../../common/bridge'
 
 export default {
   private: {
@@ -196,8 +199,24 @@ export default {
 
   onInit() {
     this.connect = interconnect.instance()
-    this.bindConnectEvents()
-    this.status = '等待中'
+    initBridge()          // 确保 bridge 统一处理器在场（不抢 onmessage）
+    this._tap = (text) => {
+      let t = text
+      if (typeof t !== 'string') {
+        try { t = JSON.stringify(t) } catch (e) { t = String(t) }
+      }
+      this.rxCount += 1
+      this.lastRx = this.truncate(t)
+      console.log('RX: ' + t)
+    }
+    setRawTap(this._tap)
+    this._onLink = (ready) => {
+      this.linkReady = ready
+      this.status = ready ? '已连接' : '蓝牙未连接'
+    }
+    onLinkState(this._onLink)
+    this.linkReady = isLinkReady()
+    this.status = this.linkReady ? '已连接' : '等待中'
     this.checkState()
     setTimeout(() => {
       this.sendMsg('watch_hello', { from: 'watch', page: 'debug' })
@@ -205,70 +224,9 @@ export default {
   },
 
   onDestroy() {
-    // 不置空 onmessage（会破坏其他页面），改为重新挂回 bridge.js 的统一处理器
-    initBridge()
-  },
-
-  bindConnectEvents() {
-    this.connect.onopen = () => {
-      this.linkReady = true
-      this.status = '已连接'
-    }
-    this.connect.onclose = () => {
-      this.linkReady = false
-      this.status = '蓝牙未连接'
-    }
-    this.connect.onerror = (data) => {
-      if (data && data.code === 1006) this.linkReady = false
-      this.status = '错误' + (data && data.code ? ' ' + data.code : '')
-      this.lastErr = 'onerror code=' + (data && data.code) + ' ' + (data && data.data)
-    }
-    this.connect.onmessage = (data) => {
-      this.handleMessage(data.data)
-    }
-  },
-
-  handleMessage(text) {
-    if (typeof text === 'object' && text !== null) {
-      try { text = JSON.stringify(text) } catch (e) { text = String(text) }
-    }
-    if (typeof text !== 'string' || !text) return
-    this.rxCount += 1
-    this.lastRx = this.truncate(text)
-    console.log('RX: ' + text)
-
-    let msg = null
-    try { msg = JSON.parse(text) } catch (e) { return }
-    // 解系统嵌套 {"json":"..."}
-    if (msg && typeof msg.json === 'string' && msg.json) {
-      try { msg = JSON.parse(msg.json) } catch (e) { return }
-    }
-    if (!msg || !msg.type) return
-
-    // ESP32 心跳 ping -> 回 pong
-    if (msg.type === 'ping') {
-      this.sendRaw(JSON.stringify({
-        v: 3, id: msg.id || '', timestamp: Date.now(),
-        replyTo: 'ping', type: 'pong', payload: { ok: true, from: 'watch' }
-      }))
-      return
-    }
-    // ESP32 主动推送类消息：只展示，绝不回 ack（防止 ack 回环）
-    if (msg.type === 'wifi_status' || msg.type === 'providers_push' ||
-        msg.type === 'providers_pull' || msg.type === 'chat_start' ||
-        msg.type === 'chat_delta' || msg.type === 'chat_done' ||
-        msg.type === 'chat_error' || msg.type === 'pong' ||
-        msg.type === 'echo_test_ack' || msg.type === 'watch_hello_ack') {
-      return
-    }
-    // 仅对 echo_test 回 ack（本页的测试消息）
-    if (msg.type === 'echo_test') {
-      this.sendRaw(JSON.stringify({
-        v: 3, id: msg.id || '', timestamp: Date.now(),
-        replyTo: 'echo_test', type: 'echo_test_ack',
-        payload: { ok: true, echo: msg.payload || {} }
-      }))
-    }
+    setRawTap(null)
+    offLinkState(this._onLink)
+    initBridge()    // 兜底恢复统一处理器
   },
 
   sendMsg(type, payload) {

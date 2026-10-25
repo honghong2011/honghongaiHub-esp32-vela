@@ -5,40 +5,13 @@
       <div class="back-btn" @click="goBack">
         <text class="back-icon">‹</text>
       </div>
-      <text class="header-title">{{view === 'list' ? '选择 WiFi' : '设置'}}</text>
-    </div>
-
-    <!-- ========= 列表视图：扫描结果 ========= -->
-    <div class="scan-body" show="{{view === 'list'}}">
-      <div class="scan-tip" show="{{scanning}}">
-        <text class="scan-tip-text">正在扫描附近 WiFi…</text>
-      </div>
-      <list class="ap-list" show="{{!scanning}}">
-        <list-item type="ap" class="ap-item" for="{{wifiAps}}">
-          <div class="ap-row" @click="pickAp($item.ssid)">
-            <text class="ap-ssid">{{$item.ssid}}</text>
-            <text class="ap-rssi">{{$item.rssi}} dBm</text>
-          </div>
-        </list-item>
-        <!-- 扫描结果为空 -->
-        <list-item type="apempty" class="ap-item" show="{{wifiAps.length === 0}}">
-          <div class="ap-row">
-            <text class="ap-ssid ap-dim">未扫描到网络，点此重试</text>
-          </div>
-        </list-item>
-        <!-- 手动输入兜底（隐藏网络等场景） -->
-        <list-item type="apmanual" class="ap-item">
-          <div class="ap-row" @click="manualSsid">
-            <text class="ap-ssid ap-dim">手动输入 SSID</text>
-          </div>
-        </list-item>
-      </list>
+      <text class="header-title">设置</text>
     </div>
 
     <!-- ========= 表单视图：状态 + 手动输入 + 扫描入口 ========= -->
     <div class="card" show="{{view === 'form'}}">
       <text class="card-title">WiFi 配置</text>
-      <text class="card-status">状态: {{wifiLabel}}</text>
+      <text class="card-status">状态: {{wifiState}}</text>
       <text class="card-ip" show="{{wifiIp}}">IP: {{wifiIp}}</text>
 
       <!-- 扫描入口（主推流程） -->
@@ -90,7 +63,7 @@
     <!-- 关于 -->
     <div class="card" show="{{view === 'form'}}">
       <text class="card-title">关于</text>
-      <text class="card-status">宏宏AIHub v1.2</text>
+      <text class="card-status">宏宏AIHub v1.3</text>
     </div>
   </div>
 </template>
@@ -131,64 +104,6 @@
   font-size: 24px;
   font-weight: bold;
   color: #33B4FF;
-}
-
-/* ---- 列表视图 ---- */
-.scan-body {
-  flex: 1;
-  width: 336px;
-  flex-direction: column;
-}
-
-.scan-tip {
-  width: 336px;
-  padding: 20px 0;
-  justify-content: center;
-  align-items: center;
-}
-
-.scan-tip-text {
-  font-size: 20px;
-  color: #888888;
-}
-
-.ap-list {
-  flex: 1;
-  width: 336px;
-}
-
-.ap-item {
-  padding: 3px 12px;
-}
-
-.ap-row {
-  width: 312px;
-  height: 52px;
-  flex-direction: row;
-  align-items: center;
-  justify-content: space-between;
-  background-color: #1C1C1E;
-  border-radius: 12px;
-  padding-left: 16px;
-  padding-right: 16px;
-}
-
-.ap-ssid {
-  font-size: 20px;
-  color: #ffffff;
-  flex: 1;
-  lines: 1;
-  text-overflow: ellipsis;
-}
-
-.ap-dim {
-  color: #888888;
-}
-
-.ap-rssi {
-  font-size: 16px;
-  color: #666666;
-  margin-left: 8px;
 }
 
 /* ---- 表单视图 ---- */
@@ -292,7 +207,6 @@
 
 <script>
 import router from '@system.router'
-import prompt from '@system.prompt'
 import {
   initBridge, isLinkReady, checkLink, on, off, send
 } from '../../common/bridge'
@@ -300,10 +214,7 @@ import { saveEspIp, loadEspIp } from '../../common/store'
 
 export default {
   private: {
-    view: 'form',           // form（表单）| list（扫描列表）
-    scanning: false,
-    wifiAps: [],            // 扫描结果 [{ssid, rssi}]
-    selectedSsid: '',       // 列表选中的网络（输密码时用）
+    view: 'form',           // 表单视图常驻（扫描列表已拆到独立页 pages/wifilist）
     ssid: '',
     pass: '',
     wifiState: 'unknown',   // connecting / connected / failed / unknown
@@ -316,9 +227,7 @@ export default {
   onInit() {
     initBridge()
     this._onWifi = (payload) => { this.onWifiStatus(payload) }
-    this._onList = (payload) => { this.onWifiList(payload) }
     on('wifi_status', this._onWifi)
-    on('wifi_list', this._onList)
     loadEspIp((ip) => { this.espIp = ip })
     // 拉取当前 WiFi 状态
     setTimeout(() => { send('wifi_query', {}) }, 500)
@@ -327,7 +236,6 @@ export default {
 
   onDestroy() {
     off('wifi_status', this._onWifi)
-    off('wifi_list', this._onList)
   },
 
   onShow() {
@@ -336,16 +244,6 @@ export default {
     if (!result) return
     globalThis.__kbResult = null
 
-    if (result.target === 'pass' && this.selectedSsid) {
-      // 扫描流程最后一步：选中的 SSID + 输入的密码一起发给 ESP32
-      const ssid = this.selectedSsid
-      this.selectedSsid = ''
-      this.view = 'form'
-      this.wifiState = 'connecting'
-      const ok = send('wifi_set', { ssid: ssid, pass: result.text })
-      if (!ok) this.wifiState = 'failed'
-      return
-    }
     if (result.target === 'ssid') {
       // 手动输入 SSID（备用流程）
       this.ssid = result.text
@@ -371,54 +269,14 @@ export default {
     }
   },
 
-  onWifiList(payload) {
-    this.wifiAps = payload.aps || []
-    this.scanning = false
-  },
-
   // ---------- 扫描流程 ----------
+  // 扫描列表拆到独立页 pages/wifilist：设置页内嵌视图翻转 + scroll 的
+  // 组合在本机实测整块不渲染（黑屏根因），独立页 scroll 从创建起常驻
   openScan() {
-    this.view = 'list'
-    this.scanning = true
-    this.wifiAps = []
-    // 12s 未收到结果提示重试（顺序射频：ESP32 需拆蓝牙→扫描→重连→推送，
-    // 全程 10~20 秒；wifi_list 到达时 scanning 置 false）
-    const self = this
-    setTimeout(() => {
-      if (self.scanning) {
-        self.scanning = false
-        if (self.wifiAps.length === 0) {
-          try { prompt.showToast({ message: '扫描超时，点列表重试' }) } catch (e) {}
-        }
-      }
-    }, 12000)
-    send('wifi_scan', {})
+    router.push({ uri: 'pages/wifilist' })
   },
 
-  pickAp(ssid) {
-    if (this.scanning) return
-    this.selectedSsid = ssid
-    globalThis.__kbTarget = 'pass'
-    globalThis.__kbResult = null
-    router.push({
-      uri: 'pages/keyboard',
-      params: { target: 'pass', title: ssid, value: '', maxlen: '64' }
-    })
-  },
-
-  // ---------- 手动流程（备用） ----------
-  manualSsid() {
-    globalThis.__kbTarget = 'ssid'
-    globalThis.__kbResult = null
-    router.push({
-      uri: 'pages/keyboard',
-      params: { target: 'ssid', title: '手动输入 SSID', value: this.ssid, maxlen: '32' }
-    })
-    // 返回后 onShow 填 ssid，用户再点密码字段（target passmanual）
-    // 简化：手动流程密码也走键盘页
-    this._manualPending = true
-  },
-
+  // ---------- 手动流程（备用兜底） ----------
   startEditSsid() {
     globalThis.__kbTarget = 'ssid'
     globalThis.__kbResult = null
@@ -469,10 +327,6 @@ export default {
   },
 
   goBack() {
-    if (this.view === 'list') {
-      this.view = 'form'   // 列表视图返回先回表单
-      return
-    }
     router.back()
   },
 

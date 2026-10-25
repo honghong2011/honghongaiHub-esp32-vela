@@ -27,9 +27,14 @@ let _listeners = {}            // { type: [handler,...] }
 let _stateListeners = []       // 链路状态变化回调
 let _inited = false
 let _lastHelloMs = 0           // watch_hello 节流（8s 内不重复发）
+let _rawTap = null             // debug 页显示用收包分身（不抢 onmessage）
 
 // 上行分包接收状态（providers_push 逐条收集）
 let _pushCollector = { ver: -1, total: 0, received: [], active: false }
+
+// 上行分包接收状态（wifi_ap_push 逐条收集）
+// 单帧大 JSON（扫描结果整表 ≈1KB）会被系统层静默丢弃，必须逐 AP 小帧
+let _wifiCollector = { ver: -1, total: 0, aps: [], active: false }
 
 // 供应商内存缓存（推送收齐 / providers 页加载 storage 后更新；
 // 数据主权在 storage 与 providers 页，此缓存仅供会话内快速读取）
@@ -38,6 +43,12 @@ let _providersCache = []
 // 设置供应商缓存（providers 页与 _collectPush 调用）
 export function setProvidersCache(list) {
   _providersCache = Array.isArray(list) ? list : []
+}
+
+// debug 页收包显示挂载：bridge 正常处理不受影响（旧方案由 debug 页
+// 抢占 onmessage，抢占期间 providers_push / wifi_ap_push 等帧被整包丢弃）
+export function setRawTap(handler) {
+  _rawTap = typeof handler === 'function' ? handler : null
 }
 
 // ------------------------------------------------------------
@@ -132,6 +143,9 @@ export function off(type, handler) {
 // 收包处理：兼容 Object / str / {"json":"..."} 三种封装
 // ------------------------------------------------------------
 function _handleRaw(text) {
+  if (_rawTap) {
+    try { _rawTap(text) } catch (e) { /* 显示异常不影响处理 */ }
+  }
   if (typeof text === 'object' && text !== null) {
     try { text = JSON.stringify(text) } catch (e) { text = String(text) }
   }
@@ -165,6 +179,14 @@ function _handleRaw(text) {
   // 上行分包收集：providers_push 逐条收集，收齐整体派发
   if (type === 'providers_push') {
     _collectPush(msg.payload || {})
+    return
+  }
+  // 扫描结果逐 AP 分包：bridge 层收集 + 派发给页面监听（双层兜底——
+  // 页面级监听是 chat_delta 同款已验证通路，bridge 收集缺席/异常时
+  // 设置页可自行拼装，两层谁先收齐谁生效，重复触发为幂等覆盖）
+  if (type === 'wifi_ap_push') {
+    _collectWifiPush(msg.payload || {})
+    _dispatch('wifi_ap_push', msg)
     return
   }
 
@@ -204,6 +226,26 @@ function _collectPush(payload) {
     _dispatch('providers_push', { type: 'providers_push', payload: { ver: ver, providers: providers } })
     // 回 ack
     _sendDirect('providers_ack', { ok: true, ver: ver, received: providers.length })
+  }
+}
+
+// wifi_ap_push 分包收集：收齐 total 条后合成 wifi_list 派发并回 ack
+// （ack 让 ESP32 清除补推标志，停止整轮重发）
+function _collectWifiPush(payload) {
+  const ver = payload.ver || 0
+  const total = payload.total || 0
+  if (!_wifiCollector.active || _wifiCollector.ver !== ver) {
+    _wifiCollector = { ver: ver, total: total, aps: [], active: true }
+    // 排障信标：每轮首帧回报。ESP32 串口见到 ROUTE wifi_probe 即证明
+    // 帧已进入本层（问题只能在下游收集/派发）；见不到 = 帧被更上层拦截
+    _sendDirect('wifi_probe', { ver: ver, total: total })
+  }
+  if (payload.ssid) _wifiCollector.aps.push({ ssid: payload.ssid, rssi: payload.rssi || 0 })
+  if (_wifiCollector.aps.length >= total) {
+    const aps = _wifiCollector.aps
+    _wifiCollector = { ver: -1, total: 0, aps: [], active: false }
+    _dispatch('wifi_list', { type: 'wifi_list', payload: { aps: aps } })
+    _sendDirect('wifi_scan_ack', { ok: true, ver: ver, count: aps.length })
   }
 }
 

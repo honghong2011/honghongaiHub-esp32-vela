@@ -51,6 +51,9 @@
       "pages/setting": {
         "component": "setting"
       },
+      "pages/wifilist": {
+        "component": "wifilist"
+      },
       "pages/keyboard": {
         "component": "keyboard"
       },

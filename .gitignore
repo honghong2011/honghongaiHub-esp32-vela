@@ -19,3 +19,6 @@ Desktop.ini
 *.log
 .nyc_output
 coverage/
+
+# ===== 工作区配置文件 =====
+*.code-workspace
