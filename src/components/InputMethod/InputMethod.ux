@@ -5,7 +5,7 @@
     <div if="{{!hide || keyboardCreated}}">
       <div show="{{!hide}}" style="background-color:black;flex-direction: column;" >
       <!-- 拼音小字行：键盘框外上方单独一行，黑底覆盖，仅中/日模式且有 cval 时显示，只展示不可点 -->
-      <div if="{{screentype !== 'circle'}}" class="cvalrow-wrap" show="{{(lang==='cn' || lang==='jp') && downFlag==='' && !numFlag && cval}}">
+      <div if="{{screentype !== 'circle'}}" class="cvalrow-wrap" show="{{lang==='cn' && downFlag==='' && !numFlag && cval}}">
         <text class="cvalrow">{{cvalDisplay}}</text>
       </div>
       <!-- 方屏67（336x480 方形屏走此分支，见原项目 README：rect 对应 designWidth≥336） -->
@@ -25,7 +25,7 @@
                 <img static src="./assets/horizontal/space.png" style="width: 60px;height: 60px;" @click="onBtnClick('space')" />
               </div>
             </div>
-            <div if="{{numFlag && !numFlag_jp}}" style="left: 6px; flex-direction: column;">
+            <div if="{{numFlag}}" style="left: 6px; flex-direction: column;">
               <div static style="margin-left: 0px;margin-top: 0px;height: 60px;">
                 <text class="calbtn67" for="{{item in keys['sign'][0]}}" @click="onSelect(item)">{{item}}</text>
               </div>
@@ -40,7 +40,7 @@
         </div>
         <div style="width: 100%; flex-direction: row; justify-content: center; top:6px; padding:0 6px;">
           <img src="./assets/horizontal/cn.png" style="padding: 6px;width: 60px;height: 60px;" @click="onBtnClick('lang')" if="{{downFlag==='' && !numFlag && lang==='cn'}}" />
-          <div if="{{(lang === 'cn' || lang === 'jp') && !numFlag}}" style="margin-left: 6px;flex: 1;height: 60px;background-color:#262626;border-color: #333333; border-width: 3px; border-radius: 100px;flex-direction: row;align-items:center">
+          <div if="{{lang === 'cn' && !numFlag}}" style="margin-left: 6px;flex: 1;height: 60px;background-color:#262626;border-color: #333333; border-width: 3px; border-radius: 100px;flex-direction: row;align-items:center">
             <!-- 候选横滚行：整词在前、单字随后（拼音已在键盘上方独立小字行显示，这里不放 cval） -->
             <scroll id="cvalWaiting" scroll-x="{{true}}" style="position:absolute;width: 85%;height: 42px;">
               <div static style="position: absolute;left: 0px;height: 42px;padding-left:20px;padding-right:20px">
@@ -87,7 +87,7 @@
                 <img static src="./assets/arc/space.png" style="width: 60px;height: 60px;" @click="onBtnClick('space')" />
               </div>
             </div>
-            <div if="{{numFlag && !numFlag_jp}}" style="left: 3px; flex-direction: column;">
+            <div if="{{numFlag}}" style="left: 3px; flex-direction: column;">
               <div static style="margin-left: 0px;margin-top: 0px;height: 60px;">
                 <text class="calbtn66" for="{{item in keys['sign'][0]}}" @click="onSelect(item)">{{item}}</text>
               </div>
@@ -96,17 +96,6 @@
               </div>
               <div static style="margin-left: 64px;margin-top: -5px;height: 60px;">
                 <text class="calbtn66" for="{{item in keys['sign'][2]}}" @click="onSelect(item)">{{item}}</text>
-              </div>
-            </div>
-            <div if="{{numFlag_jp}}" style="left: 3px; flex-direction: column;">
-              <div static style="margin-left: 0px;margin-top: 0px;height: 60px;">
-                <text class="calbtn66" for="{{item in keys['sign_jp'][0]}}" @click="onSelect(item)">{{item}}</text>
-              </div>
-              <div static style="margin-left: 32px;margin-top: -5px;height: 60px;">
-                <text class="calbtn66" for="{{item in keys['sign_jp'][1]}}" @click="onSelect(item)">{{item}}</text>
-              </div>
-              <div static style="margin-left: 64px;margin-top: -5px;height: 60px;">
-                <text class="calbtn66" for="{{item in keys['sign_jp'][2]}}" @click="onSelect(item)">{{item}}</text>
               </div>
             </div>
           </scroll>
@@ -121,10 +110,9 @@
           </scroll>
           <img show="{{resultRow0.length > 0}}" style="position: absolute;left: 120px;top: 57px;width: 60px;height: 40px;" src="./assets/arc/down2.png" @click="onBtnClick('down')" />
           <!-- 动态路径用绝对路径（相对路径动态变量在部分 toolkit 版本解析告警） -->
-          <img src="/components/InputMethod/assets/arc/{{lang}}.png" style="position: absolute;top:0px;left:9px;width: 48px;height: 42px;" @click="onBtnClick('lang')" show="{{downFlag==='' && !numFlag && !numFlag_jp}}" />
-          <img src="./assets/arc/back2.png" style="position: absolute;top:0px;left:9px;width: 48px;height: 42px;" @click="onBtnClick('switchCn')" show="{{numFlag && lang==='cn' ||numFlag_jp && lang==='jp' }}" />
+          <img src="/components/InputMethod/assets/arc/{{lang}}.png" style="position: absolute;top:0px;left:9px;width: 48px;height: 42px;" @click="onBtnClick('lang')" show="{{downFlag==='' && !numFlag}}" />
+          <img src="./assets/arc/back2.png" style="position: absolute;top:0px;left:9px;width: 48px;height: 42px;" @click="onBtnClick('switchCn')" show="{{numFlag && lang==='cn'}}" />
           <img src="./assets/arc/123.png" style="position: absolute;left: 70px;top: 0px;width: 52px;height: 42px;" @click="onBtnClick('switchNum')" show="{{downFlag==='' && !numFlag && lang==='cn'}}" />
-          <img src="./assets/arc/123.png" style="position: absolute;left: 70px;top: 0px;width: 52px;height: 42px;" @click="onBtnClick('switchNum_jp')" show="{{downFlag==='' && !numFlag_jp && lang==='jp'}}" />
           <img src="./assets/arc/bigA.png" style="position: absolute;top:0px;left:72px;width:48px;height:42px;" @click="onBtnClick('switchLow')" show="{{downFlag==='' && upperFlag && lang==='en' }}" />
           <img src="./assets/arc/a.png" style="position: absolute;top:0px;left:72px;width:48px;height:42px;" @click="onBtnClick('switchUpper')" show="{{downFlag==='' && !upperFlag && lang==='en' }}" />
           <img src="./assets/arc/del.png" style="position: absolute;left: 135px;top: 0px;width: 48px;height: 42px;" @click="onBtnClick('D')" />
@@ -204,7 +192,6 @@ export default {
     downFlag: "",
     lang: "cn",
     numFlag: false,
-    numFlag_jp: false,
     upperFlag: false,
     // 键盘子树是否已建入 DOM：首次弹出置 true 保活（之后 hide 只走 show 显隐，不重建）
     keyboardCreated: false,
@@ -223,11 +210,6 @@ export default {
         ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"],
         ["~", "!", "@", "#", "%", "“", "”", "*", "?", "/"],
         ["(", ")", "-", "_", ":", ";", "，", "。", "."],
-      ],
-      sign_jp: [
-        ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"],
-        ["~", "•", "@", "#", "%", "「", "」", "*", "?", "/"],
-        ["(", ")", "-", "…", ":", ";", "、", "。", "!"],
       ],
     },
   },
@@ -250,7 +232,6 @@ export default {
     }
     this.$watch("hide", "watchHidePropsChange");
     this.$watch("maxlength", "watchMaxLengthPropsChange");
-    this.$watch("keyboardtype", "watchKeyboardTypePropsChange");
   },
   addAllTxt(txt) {
     this.$emit("complete", { content: txt });
@@ -298,13 +279,8 @@ export default {
         this.resetResultList();
         break;
       case "lang":
-        if (this.lang === "cn") {
-          this.lang = "en";
-        } else if (this.lang === "en") {
-          this.lang = "jp";
-        } else {
-          this.lang = "cn";
-        }
+        // 中英两态切换（日语模式已移除）
+        this.lang = this.lang === "cn" ? "en" : "cn";
         this.cval = "";
         this.clearWaiting();
         this.resetResultList();
@@ -328,7 +304,7 @@ export default {
         break;
       case "select":
         if (this.lastWaitingStr != sign && this.lastWaitingStr) {
-          if (this.lang === "cn" || this.lang === 'jp') {
+          if (this.lang === "cn") {
             this.cval += this.waitingList[this.waitingIndex];
           } else {
             if (this.upperFlag) {
@@ -343,21 +319,12 @@ export default {
         break;
       case "switchNum":
         this.numFlag = true;
-        this.numFlag_jp = false;
-        this.cval = "";
-        this.clearWaiting();
-        this.resetResultList();
-        break;
-      case "switchNum_jp":
-        this.numFlag = true;
-        this.numFlag_jp = true;
         this.cval = "";
         this.clearWaiting();
         this.resetResultList();
         break;
       case "switchCn":
         this.numFlag = false;
-        this.numFlag_jp = false;
         break;
       case "switchUpper":
         this.upperFlag = true;
@@ -376,7 +343,7 @@ export default {
                 this.waitingIndex = 0;
               }
             } else {
-              if (this.lang === "cn" || this.lang === 'jp') {
+              if (this.lang === "cn") {
                 this.cval += this.waitingList[this.waitingIndex];
               } else {
                 if (this.upperFlag) {
@@ -413,11 +380,11 @@ export default {
     if (this.lastWaitingStr && this.lastWaitingStr[this.waitingIndex]) {
       watingStr = this.lastWaitingStr[this.waitingIndex];
     }
-    // 拼音分词显示：cn 模式显示 ni'hao 形式，jp/en/空串保持原样
+    // 拼音分词显示：cn 模式显示 ni'hao 形式，en/空串保持原样
     this.cvalDisplay = (this.lang === "cn")
       ? SimpleInputMethod.getSegmentedDisplay(this.cval + watingStr)
       : (this.cval + watingStr);
-    if (!(this.cval + watingStr) || (this.lang !== "cn" && this.lang !== "jp")) {
+    if (!(this.cval + watingStr) || this.lang !== "cn") {
       this.resultList = [];
       this.resultWordList = [];
       this.setResultListAll();
@@ -496,7 +463,7 @@ export default {
   onSelect(num) {
     this.$emit("keyDown", { content: num });
     this.onVibrate();
-    if ((this.lang === 'cn' || this.lang === 'jp')  && !this.numFlag) {
+    if (this.lang === 'cn' && !this.numFlag) {
       this.cval += num.toLowerCase();
     } else if (this.lang === "en" && !this.numFlag) {
       if (this.upperFlag) {
@@ -544,14 +511,6 @@ export default {
         tempCvalList.push(i);
       }
       this.cvalList = tempCvalList;
-    }
-  },
-  watchKeyboardTypePropsChange(newV) {
-    if (newV === "T9" && this.lang === "jp") {
-      this.lang = "cn";
-      this.cval = "";
-      this.clearWaiting();
-      this.resetResultList();
     }
   },
   onVibrate() {

@@ -1,5 +1,4 @@
 import { getDict } from './dic.js'
-import { getDictJp } from './dic_jp.js'
 import { getWords } from './dic_words.js'
 import { getInitialsIndex } from './dic_words_initials.js'
 import { syllables } from './pinyin_syllables.js'
@@ -28,7 +27,6 @@ SimpleInputMethod.initDict = function() {
   this.dict.py2hz = getDict()
   this.dict.py2hz2 = {}
   this.dict.py2hz2['i'] = 'i' // 特殊处理
-  this.dict.romaji2kanji = getDictJp()
 
   // 合法音节集合 + 首字母索引：一次遍历 dic.js
   this.dict.syllableSet = new Set(syllables)
@@ -77,10 +75,6 @@ SimpleInputMethod.getSingleHanzi = function(pinyin, lang = 'cn') {
   if (lang === 'cn') {
     return this.dict.py2hz2[pinyin]
     || this.dict.py2hz[pinyin]
-    || ''
-  }
-  else if (lang === 'jp') {
-    return this.dict.romaji2kanji[pinyin]
     || ''
   }
   // en 模式不查候选
