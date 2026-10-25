@@ -182,14 +182,14 @@ import router from '@system.router'
 import prompt from '@system.prompt'
 import {
   initBridge, isLinkReady, onLinkState, offLinkState, checkLink,
-  on, off, send, sendChatRequest, buildContext, SYSTEM_PROMPT
+  on, off, send, sendChatRequest, buildSystemPrompt
 } from '../../common/bridge'
 import {
   loadProviders, loadCurrent, appendRecord, readRecentRecords, trimChatIfNeeded
 } from '../../common/store'
 
-// 上下文数组（模块级，页面重建时保留）
-let _context = [{ role: 'system', content: SYSTEM_PROMPT }]
+// 上下文数组（模块级，页面重建时保留；system 仅此一份，直传给 AI）
+let _context = [{ role: 'system', content: buildSystemPrompt() }]
 let _cidSeq = 0
 
 export default {
@@ -206,8 +206,8 @@ export default {
     initBridge()
     this.bindBridge()
     this.bindLinkState()
-    // 首屏：读最近 20 条记录 + 当前选择
-    readRecentRecords(20, (records) => {
+    // 首屏：读最近 50 条记录 + 当前选择
+    readRecentRecords(50, (records) => {
       const arr = []
       for (let i = 0; i < records.length; i++) {
         arr.push({ role: records[i].role, text: records[i].text })
@@ -356,8 +356,9 @@ export default {
     this._lastSeq = 0
     this._seqGap = false
 
-    // 发送（内部自动分包；baseUrl/apiKey 随请求发给 ESP32，不落盘）
-    const ok = sendChatRequest(cid, providerObj, this.current.model, buildContext(_context))
+    // 发送（内部自动分包；baseUrl/apiKey 随请求发给 ESP32，不落盘；
+    // _context 直传：system 仅开头一份，前缀稳定利于服务端缓存命中）
+    const ok = sendChatRequest(cid, providerObj, this.current.model, _context)
     if (!ok) {
       this.messages.push({ role: 'error', text: '蓝牙未连接，ESP32重连中' })
       this.repaint()
@@ -403,7 +404,7 @@ export default {
     this.messages.push({ role: 'divider', text: '── 新对话 ──' })
     this.repaint()
     appendRecord('divider', '── 新对话 ──', '')
-    _context = [{ role: 'system', content: SYSTEM_PROMPT }]
+    _context = [{ role: 'system', content: buildSystemPrompt() }]
   },
 
   // ---------- 右滑返回（根元素 @swipe + direction right） ----------

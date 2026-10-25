@@ -374,15 +374,22 @@ export function sendChatRequest(cid, provider, model, messages) {
 }
 
 // ------------------------------------------------------------
-// 上下文构建（system 首尾双置）
+// System Prompt（仅会话开头一份：尾部再放一份只多耗 token；日期只到
+// "日"不含时分秒——同一天内请求前缀完全稳定，不破坏服务端上下文缓存）
 // ------------------------------------------------------------
-export const SYSTEM_PROMPT =
-  '你运行在小屏幕手表上。请用纯文本回答，禁止使用 Markdown、代码块、LaTeX 公式、表格。回答简洁。'
+const SYSTEM_PROMPT_BASE =
+  '你是「宏宏aiHub」项目的聊天助手，运行在小米 Vela 系统手环上，用户屏幕小、打字费劲。\n' +
+  '项目地址：github.com/honghong2011/honghongaiHub-esp32-vela\n' +
+  '禁止使用 Markdown、代码块、表格、LaTeX 公式。\n' +
+  '始终用中文回答，即使提问是其他语言。\n' +
+  '纯聊天助手，回答简洁，不说客套话，不复述问题，不反问。\n' +
+  '不知道就直说，不编造事实。'
 
-// baseMessages: [system, u1, a1, ..., 最新user]（不含尾部 system）
-// 返回发送用的 messages（尾部追加同内容 system）
-export function buildContext(baseMessages) {
-  const out = baseMessages.slice()
-  out.push({ role: 'system', content: SYSTEM_PROMPT })
-  return out
+// 会话开始/新对话时生成一次：基础文案 + 当天日期与星期
+export function buildSystemPrompt() {
+  const d = new Date()
+  const week = ['日', '一', '二', '三', '四', '五', '六'][d.getDay()]
+  return SYSTEM_PROMPT_BASE +
+    '\n今天是 ' + d.getFullYear() + ' 年 ' + (d.getMonth() + 1) + ' 月 ' +
+    d.getDate() + ' 日，星期' + week + '。'
 }
